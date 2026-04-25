@@ -1,0 +1,6 @@
+[submodule "pzprjs"]
+	path = pzprjs
+	url = git@github.com:Luna5akura/pzprjs.git
+[submodule "cspuz_core"]
+	path = cspuz_core
+	url = https://github.com/Luna5akura/cspuz_core
