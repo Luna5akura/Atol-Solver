@@ -1,343 +1,28 @@
 # Puzzle Workspace
 
-This workspace currently contains two separate repositories:
+这个仓库是一个外层 workspace，用来同时开发两个子仓库：
 
-- `pzprjs/`
-- `cspuz_core/`
+- `pzprjs/`：网页前端、题型实现、UI、发布产物
+- `cspuz_core/`：Rust/WASM solver backend
 
-They are not nested as one git repository today. The folder `puzzle/` itself is just a workspace root for local development.
+当前我们在这个 workspace 里做的主要事情包括：
 
-## What Each Repository Does
+- 给 `pzprjs` 增加 `travelline` 题型
+- 给页面加 `Run solver / Auto solver`
+- 让 `pzprjs` 使用 `cspuz_core` 生成的 WASM solver
 
-- `pzprjs`
-  - Main web UI and puzzle frontend
-  - Contains the new `travelline` puzzle type and the solver UI
-  - Produces the static site in `pzprjs/dist/`
-
-- `cspuz_core`
-  - Rust + WASM solver backend
-  - Builds `cspuz_solver_backend.js` and `cspuz_solver_backend.wasm`
-  - `pzprjs` consumes those WASM artifacts
-
-## Local Development
-
-### 1. Build the solver backend
-
-From `cspuz_core/`:
-
-```bash
-bash ./build_cspuz_solver_backend.sh debug
-```
-
-This produces:
-
-- `cspuz_core/build/cspuz_solver_backend/cspuz_solver_backend.js`
-- `cspuz_core/build/cspuz_solver_backend/cspuz_solver_backend.wasm`
-
-### 2. Copy the backend artifacts into `pzprjs`
-
-From `puzzle/`:
-
-```bash
-cp -r cspuz_core/build/cspuz_solver_backend/* pzprjs/dist/wasm/
-```
-
-### 3. Build the frontend
-
-From `pzprjs/`:
-
-```bash
-pnpm build
-```
-
-### 4. Run a local preview server
-
-From `pzprjs/`:
-
-```bash
-./node_modules/.bin/live-server dist
-```
-
-Then open the printed local URL, for example:
+## 仓库结构
 
 ```text
-http://127.0.0.1:44509/p.html?travelline
+puzzle/
+├── README.md
+├── pzprjs/
+└── cspuz_core/
 ```
 
-## Helpful Combined Workflow
+这两个目录应该作为子仓库管理。外层仓库只记录它们当前指向的 commit。
 
-`pzprjs/package.json` already contains a dev command that watches both repositories:
-
-```bash
-cd pzprjs
-pnpm dev
-```
-
-That command:
-
-- rebuilds `pzprjs` when `src/` or `src-ui/` changes
-- rebuilds the `cspuz_core` solver backend when backend Rust files change
-- copies backend artifacts into `pzprjs/dist/wasm/`
-- starts a local static server
-
-## Solver Status Messages
-
-### `applied 77 irrefutable solver results shared by all 1232 solutions`
-
-Meaning:
-
-- the current puzzle has at least `1232` valid full solutions
-- among those solutions, `77` answer facts are identical in every solution
-- only those guaranteed facts were applied
-
-For `travelline`, these guaranteed facts can include:
-
-- an edge that must be a line
-- an inside edge that must not be a line
-
-This is the same idea as `irrefutable_facts` in `cspuz_core`.
-
-### `solver could not finish exhaustive deduction, so no tentative result was applied`
-
-Meaning:
-
-- the solver did not finish checking all solutions within its current limits
-- because it did not finish the exhaustive search, it refused to output an incomplete "common part"
-- this is intentional, to keep the meaning of solver output strict: only fully confirmed facts are applied
-
-## How to Reduce This Situation
-
-Right now, the `travelline` local solver has two limits in:
-
-- `pzprjs/src-ui/js/solver.js`
-
-Look for these values inside `solveTravelLinePuzzle()`:
-
-```js
-var maxStates = 200000;
-var deadline = Date.now() + 1500;
-```
-
-They mean:
-
-- `maxStates`: maximum DFS states to explore
-- `deadline`: time limit in milliseconds from solver start
-
-If you want longer search time, increase them, for example:
-
-```js
-var maxStates = 2000000;
-var deadline = Date.now() + 10000;
-```
-
-Then rebuild:
-
-```bash
-cd pzprjs
-pnpm build
-```
-
-Tradeoff:
-
-- larger limits reduce premature "incomplete" cases
-- but they can also make the browser feel much slower on hard boards
-
-## Deployment
-
-The actual web app to deploy is the built `pzprjs/dist/` directory.
-
-Good static hosting choices:
-
-- GitHub Pages
-- Vercel
-- Netlify
-
-### Simple deployment with Vercel
-
-From `pzprjs/`:
-
-```bash
-pnpm build
-```
-
-Deploy the `dist/` folder as a static site.
-
-### Simple deployment with GitHub Pages
-
-Build:
-
-```bash
-cd pzprjs
-pnpm build
-```
-
-Then publish the contents of `pzprjs/dist/` to a GitHub Pages branch or to a separate deployment repository.
-
-## How to Push to GitHub
-
-Because this workspace root is not a git repository, you need to decide how you want to manage GitHub.
-
-### Option A: Keep the current two-repo structure
-
-Use this if you want `pzprjs` and `cspuz_core` to stay independent.
-
-Push them separately:
-
-```bash
-cd pzprjs
-git remote -v
-git status
-git add .
-git commit -m "Your message"
-git push origin <branch>
-```
-
-and:
-
-```bash
-cd ../cspuz_core
-git remote -v
-git status
-git add .
-git commit -m "Your message"
-git push origin <branch>
-```
-
-This is the closest match to the current layout.
-
-### Option B: Create a new outer "workspace" repository
-
-Use this if you want one GitHub repository that tracks the whole `puzzle/` folder.
-
-From `puzzle/`:
-
-```bash
-git init
-git add README.md
-git commit -m "Initialize workspace repo"
-```
-
-Then connect to GitHub:
-
-```bash
-git remote add origin <your-github-repo-url>
-git branch -M main
-git push -u origin main
-```
-
-For the two inner repositories, you have two sub-options:
-
-- keep them as git submodules
-- remove their inner `.git/` folders and absorb them into one monorepo
-
-If you want the cleanest history with least surprise, prefer submodules.
-
-### Option C: Create a new outer repository with submodules
-
-This is usually the safest structure if both inner repositories should remain independent upstream.
-
-From a fresh directory:
-
-```bash
-git init puzzle-workspace
-cd puzzle-workspace
-git submodule add <pzprjs-url> pzprjs
-git submodule add <cspuz-core-url> cspuz_core
-git commit -m "Add workspace submodules"
-git remote add origin <your-github-repo-url>
-git branch -M main
-git push -u origin main
-```
-
-### Option D: Convert the current `puzzle/` folder into an outer repository that tracks both existing local repositories as submodules
-
-Use this if you want to keep working in the current folder instead of creating a fresh sibling directory.
-
-Important:
-
-- do not delete `pzprjs/.git` or `cspuz_core/.git`
-- commit or stash your work inside each child repository first if you want a cleaner starting point
-- the outer repository will track commits of the two child repositories, not their raw file contents
-
-One practical flow is:
-
-1. Create GitHub repositories for:
-   - the outer workspace repo
-   - `pzprjs` if needed
-   - `cspuz_core` if needed
-2. Make sure `pzprjs` and `cspuz_core` each have the remote you want and are pushed once
-3. Initialize the outer repository in `puzzle/`
-
-From `puzzle/`:
-
-```bash
-git init
-printf ".codex\n" > .gitignore
-git add .gitignore README.md
-git commit -m "Initialize workspace repo"
-```
-
-Then register the two existing directories as submodules by path:
-
-```bash
-git submodule add <pzprjs-github-url> pzprjs
-git submodule add <cspuz-core-github-url> cspuz_core
-git commit -m "Add pzprjs and cspuz_core as submodules"
-```
-
-If Git refuses because the directories already exist, the usual safe recovery flow is:
-
-```bash
-git rm --cached pzprjs cspuz_core
-git submodule add --force <pzprjs-github-url> pzprjs
-git submodule add --force <cspuz-core-github-url> cspuz_core
-git commit -m "Register existing repositories as submodules"
-```
-
-Then connect the outer repository itself to GitHub:
-
-```bash
-git remote add origin <outer-workspace-github-url>
-git branch -M main
-git push -u origin main
-```
-
-After that, your push flow becomes:
-
-1. Commit and push inside `pzprjs/`
-2. Commit and push inside `cspuz_core/`
-3. Return to `puzzle/`
-4. Commit the updated submodule pointers in the outer repository
-
-Example:
-
-```bash
-cd pzprjs
-git add .
-git commit -m "Update pzprjs"
-git push
-
-cd ../cspuz_core
-git add .
-git commit -m "Update cspuz_core"
-git push
-
-cd ..
-git add pzprjs cspuz_core
-git commit -m "Update submodule pointers"
-git push
-```
-
-## Suggested Practical Setup
-
-For your current state, the least disruptive path is:
-
-1. Keep `pzprjs` and `cspuz_core` as separate repositories
-2. Push code changes in each one independently
-3. Treat `pzprjs/dist/` as the deployable website artifact
-4. Only create an outer workspace repository if you really want one GitHub page to describe the combined project
-
-## Current Important Files
+## 你最常用的文件
 
 - `pzprjs/src/variety/travelline.js`
 - `pzprjs/src-ui/js/solver.js`
@@ -346,3 +31,296 @@ For your current state, the least disruptive path is:
 - `pzprjs/src-ui/res/p.ja.json`
 - `cspuz_core/cspuz_solver_backend/src/lib.rs`
 - `cspuz_core/cspuz_solver_backend/src/board.rs`
+
+## 首次使用
+
+### 1. 构建 solver backend
+
+```bash
+cd cspuz_core
+bash ./build_cspuz_solver_backend.sh debug
+```
+
+构建结果会出现在：
+
+- `cspuz_core/build/cspuz_solver_backend/cspuz_solver_backend.js`
+- `cspuz_core/build/cspuz_solver_backend/cspuz_solver_backend.wasm`
+
+### 2. 拷贝到前端仓库
+
+在 workspace 根目录执行：
+
+```bash
+cp -r cspuz_core/build/cspuz_solver_backend/* pzprjs/dist/wasm/
+```
+
+### 3. 构建前端
+
+```bash
+cd pzprjs
+pnpm build
+```
+
+### 4. 本地预览
+
+```bash
+cd pzprjs
+./node_modules/.bin/live-server dist
+```
+
+然后打开输出的地址，例如：
+
+```text
+http://127.0.0.1:44509/p.html?travelline
+```
+
+## 日常开发
+
+### 推荐方式
+
+`pzprjs` 里已经有联动开发命令：
+
+```bash
+cd pzprjs
+pnpm dev
+```
+
+它会同时做这些事：
+
+- 监听 `pzprjs/src` 和 `pzprjs/src-ui`
+- 监听 `cspuz_core/cspuz_solver_backend/src`
+- backend 改动后自动重新构建 WASM
+- 自动把 WASM 拷贝到 `pzprjs/dist/wasm`
+- 启动本地静态服务
+
+### 手动方式
+
+如果你只改了前端：
+
+```bash
+cd pzprjs
+pnpm build
+```
+
+如果你改了 `cspuz_core`：
+
+```bash
+cd cspuz_core
+bash ./build_cspuz_solver_backend.sh debug
+
+cd ../
+cp -r cspuz_core/build/cspuz_solver_backend/* pzprjs/dist/wasm/
+
+cd pzprjs
+pnpm build
+```
+
+## 发布
+
+真正需要部署的是：
+
+- `pzprjs/dist/`
+
+它是一个静态站点，可以部署到：
+
+- GitHub Pages
+- Vercel
+- Netlify
+
+### 最简单的发布流程
+
+```bash
+cd pzprjs
+pnpm build
+```
+
+然后把 `dist/` 目录发布到你的静态托管平台。
+
+## Solver 说明
+
+### 普通题型
+
+大多数已接入 `cspuz_core` 的题型，网页端会调用 `cspuz_solver_backend.wasm`。  
+这个后端的语义是 `irrefutable_facts`，也就是：
+
+- 只输出所有解中都成立的事实
+- 不要求题目唯一解
+
+### `travelline`
+
+`travelline` 目前走的是前端本地 solver，不是 `cspuz_core` 原生题型。  
+现在它的策略是：
+
+1. 先找一个可行解
+2. 再对边做反证
+3. 如果某条边改成相反状态后无解，则该边是可推断的
+
+这比“先数清所有解再求交集”更适合大空盘。
+
+### 常见提示
+
+`applied N irrefutable solver results`
+
+意思是：
+
+- solver 找到了 `N` 个确定无疑的答案事实
+- 这些结果已经写回到盘面
+
+`solver could not finish exhaustive deduction, so no tentative result was applied`
+
+意思是：
+
+- 当前本地 solver 在限制内没有完成这次严格求证
+- 为了保证“只输出确定事实”，它这次选择不应用任何近似结果
+
+### 调长本地 solver 时间
+
+如果你想减少“不完整”提示，可以改：
+
+- `pzprjs/src-ui/js/solver.js`
+
+在 `solveTravelLinePuzzle()` 里找：
+
+```js
+var maxStates = 2000000;
+var deadline = Date.now() + 20000;
+```
+
+它们分别表示：
+
+- `maxStates`：最多搜索多少个状态
+- `deadline`：最多跑多久，单位毫秒
+
+比如：
+
+```js
+var maxStates = 8000000;
+var deadline = Date.now() + 60000;
+```
+
+然后重新构建：
+
+```bash
+cd pzprjs
+pnpm build
+```
+
+代价是页面可能会慢很多。
+
+## 这个外层仓库应该怎么用
+
+推荐工作流是：
+
+1. 在 `pzprjs/` 里改前端代码
+2. 在 `cspuz_core/` 里改 backend 代码
+3. 各自提交并推送
+4. 回到外层仓库，提交 submodule 指针更新
+
+## Submodule 工作流
+
+### 查看状态
+
+在外层仓库：
+
+```bash
+git status
+git submodule status
+```
+
+### 更新某个子仓库后，提交外层仓库
+
+先提交子仓库：
+
+```bash
+cd pzprjs
+git add .
+git commit -m "Update pzprjs"
+git push
+```
+
+或者：
+
+```bash
+cd cspuz_core
+git add .
+git commit -m "Update cspuz_core"
+git push
+```
+
+然后回到外层仓库记录新的 submodule commit：
+
+```bash
+cd ..
+git add pzprjs cspuz_core
+git commit -m "Update submodule pointers"
+git push
+```
+
+### 新机器拉取
+
+```bash
+git clone <outer-workspace-url>
+cd puzzle
+git submodule update --init --recursive
+```
+
+### 拉取子仓库最新内容
+
+```bash
+git submodule update --remote --recursive
+```
+
+如果你是日常开发，一般更常用的是直接进入子仓库自己 `git pull`。
+
+## 把当前目录整理成外层仓库
+
+如果你已经在 `puzzle/` 初始化了外层仓库，接下来应确保：
+
+- `pzprjs/` 和 `cspuz_core/` 各自都有自己的 GitHub remote
+- 外层仓库只跟踪它们作为 submodule 的指针
+
+如果你还没把这两个目录登记成 submodule，常用流程是：
+
+```bash
+git submodule add <pzprjs-github-url> pzprjs
+git submodule add <cspuz-core-github-url> cspuz_core
+git commit -m "Add submodules"
+```
+
+如果目录已经存在，可能需要：
+
+```bash
+git submodule add --force <pzprjs-github-url> pzprjs
+git submodule add --force <cspuz-core-github-url> cspuz_core
+git commit -m "Register existing repositories as submodules"
+```
+
+## 现在最值得记住的命令
+
+构建 backend：
+
+```bash
+cd cspuz_core
+bash ./build_cspuz_solver_backend.sh debug
+```
+
+构建 frontend：
+
+```bash
+cd pzprjs
+pnpm build
+```
+
+联动开发：
+
+```bash
+cd pzprjs
+pnpm dev
+```
+
+本地预览：
+
+```bash
+cd pzprjs
+./node_modules/.bin/live-server dist
+```
