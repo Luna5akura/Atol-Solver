@@ -230,7 +230,7 @@ pnpm build
 
 1. 拉取外层仓库和 submodule
 2. 安装 Node.js、Rust 和 Emscripten
-3. 构建 `cspuz_core` 的 release wasm
+3. 构建 `cspuz_core` 的 debug wasm
 4. 把 wasm 复制到 `pzprjs/dist/wasm`
 5. 构建 `pzprjs/dist`
 6. 发布到 GitHub Pages

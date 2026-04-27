@@ -46,7 +46,7 @@ jobs:
         run: cd pzprjs && npm install
 
       - name: Build solver backend
-        run: cd cspuz_core && bash ./build_cspuz_solver_backend.sh release
+        run: cd cspuz_core && bash ./build_cspuz_solver_backend.sh debug
 
       - name: Copy wasm artifacts into frontend dist
         run: |
