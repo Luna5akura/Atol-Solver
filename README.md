@@ -229,7 +229,7 @@ pnpm build
 这个 workflow 会自动完成：
 
 1. 拉取外层仓库和 submodule
-2. 用 `nix-shell` 准备 `emcc / node / pnpm`
+2. 安装 Node.js、pnpm、Rust 和 Emscripten
 3. 构建 `cspuz_core` 的 release wasm
 4. 把 wasm 复制到 `pzprjs/dist/wasm`
 5. 构建 `pzprjs/dist`
