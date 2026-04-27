@@ -28,13 +28,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: pzprjs/pnpm-lock.yaml
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
+          cache: npm
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -50,7 +44,7 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Install frontend dependencies
-        run: cd pzprjs && pnpm install --frozen-lockfile
+        run: cd pzprjs && npm install
 
       - name: Build solver backend
         run: cd cspuz_core && bash ./build_cspuz_solver_backend.sh release
@@ -61,7 +55,7 @@ jobs:
           cp -r cspuz_core/build/cspuz_solver_backend/* pzprjs/dist/wasm/
 
       - name: Build frontend
-        run: cd pzprjs && pnpm build
+        run: cd pzprjs && npm run build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
