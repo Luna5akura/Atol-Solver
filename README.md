@@ -215,6 +215,72 @@ pnpm build
 
 然后把 `dist/` 发布出去即可。
 
+## 自动部署到 GitHub Pages
+
+这个仓库现在已经带了一个 GitHub Actions workflow：
+
+- `.github/workflows/deploy-pages.yml`
+
+它会在下面两种情况下触发：
+
+- push 到 `main`
+- 手动 `Run workflow`
+
+这个 workflow 会自动完成：
+
+1. 拉取外层仓库和 submodule
+2. 用 `nix-shell` 准备 `emcc / node / pnpm`
+3. 构建 `cspuz_core` 的 release wasm
+4. 把 wasm 复制到 `pzprjs/dist/wasm`
+5. 构建 `pzprjs/dist`
+6. 发布到 GitHub Pages
+
+### 第一次启用
+
+在 GitHub 仓库页面：
+
+1. 打开 `Settings`
+2. 打开 `Pages`
+3. 在 `Build and deployment` 里把 `Source` 设成 `GitHub Actions`
+
+这是 GitHub 官方推荐的 Pages 自定义 workflow 方式。  
+参考文档：
+
+- https://docs.github.com/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages
+- https://docs.github.com/actions/deployment/about-deployments/deploying-with-github-actions
+
+### 之后怎么工作
+
+以后只要你把外层仓库的 `main` 分支推上去：
+
+```bash
+git push
+```
+
+GitHub 就会自动重新构建并发布站点。
+
+### 站点地址
+
+如果这是一个项目仓库，默认地址通常是：
+
+```text
+https://<owner>.github.io/<repository-name>/
+```
+
+例如 `travelline` 页面通常会是：
+
+```text
+https://<owner>.github.io/<repository-name>/p.html?travelline
+```
+
+### 注意事项
+
+- workflow 构建的是外层仓库里的 `pzprjs/dist`
+- 如果你更新了 `pzprjs/` 或 `cspuz_core/` 子仓库，但**没有**把新的 submodule 指针提交到外层仓库，Pages 不会拿到这些更新
+- 所以自动部署前，记得：
+  1. 提交并推送子仓库
+  2. 提交并推送外层仓库里的 submodule 指针
+
 ## 外层仓库与 submodule
 
 这个 workspace 适合作为外层仓库，`pzprjs/` 和 `cspuz_core/` 作为子仓库管理。
