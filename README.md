@@ -1,82 +1,106 @@
 # Puzzle Workspace
 
-这个仓库是一个外层 workspace，用来同时开发两个子仓库：
+这个仓库是一个外层 workspace，用来同时开发前端编辑器和 Rust/WASM solver。
 
-- `pzprjs/`：网页前端、题型实现、UI、发布产物
-- `cspuz_core/`：Rust/WASM solver backend
+- `pzprjs/`：网页前端、题型实现、UI、打包产物
+- `cspuz_core/`：Rust solver、WASM backend
 
-当前我们在这个 workspace 里做的主要事情包括：
+如果你要改 `travelline`，通常会同时碰到这两个目录。
 
-- 给 `pzprjs` 增加 `travelline` 题型
-- 给页面加 `Run solver / Auto solver`
-- 让 `pzprjs` 使用 `cspuz_core` 生成的 WASM solver
-
-## 仓库结构
+## 目录结构
 
 ```text
 puzzle/
 ├── README.md
+├── shell.nix
 ├── pzprjs/
 └── cspuz_core/
 ```
 
-这两个目录应该作为子仓库管理。外层仓库只记录它们当前指向的 commit。
+## 快速开始
 
-## 你最常用的文件
+### 1. 进入开发环境
 
-- `pzprjs/src/variety/travelline.js`
-- `pzprjs/src-ui/js/solver.js`
-- `pzprjs/src-ui/p.html`
-- `pzprjs/src-ui/res/p.en.json`
-- `pzprjs/src-ui/res/p.ja.json`
-- `cspuz_core/cspuz_solver_backend/src/lib.rs`
-- `cspuz_core/cspuz_solver_backend/src/board.rs`
+如果你在 NixOS，或者希望用一致的工具链，推荐直接：
 
-## 首次使用
+```bash
+nix-shell
+```
 
-### 1. 构建 solver backend
+进入后可以先确认关键工具：
+
+```bash
+which emcc
+emcc --version
+node --version
+pnpm --version
+```
+
+### 2. 构建 solver backend
 
 ```bash
 cd cspuz_core
 bash ./build_cspuz_solver_backend.sh debug
 ```
 
-构建结果会出现在：
+构建结果会输出到：
 
 - `cspuz_core/build/cspuz_solver_backend/cspuz_solver_backend.js`
 - `cspuz_core/build/cspuz_solver_backend/cspuz_solver_backend.wasm`
 
-### 2. 拷贝到前端仓库
+### 3. 更新前端使用的 wasm
 
-在 workspace 根目录执行：
+回到 workspace 根目录：
 
 ```bash
 cp -r cspuz_core/build/cspuz_solver_backend/* pzprjs/dist/wasm/
 ```
 
-### 3. 构建前端
+### 4. 构建前端
 
 ```bash
 cd pzprjs
 pnpm build
 ```
 
-### 4. 本地预览
+### 5. 本地预览
 
 ```bash
 cd pzprjs
 ./node_modules/.bin/live-server dist
 ```
 
-然后打开输出的地址，例如：
+然后打开浏览器访问：
 
 ```text
-http://127.0.0.1:44509/p.html?travelline
+http://127.0.0.1:8080/p.html?travelline
 ```
+
+实际端口以终端输出为准。
 
 ## 日常开发
 
-### 推荐方式
+### 只改前端
+
+```bash
+cd pzprjs
+pnpm build
+```
+
+### 改了 Rust backend
+
+```bash
+cd cspuz_core
+bash ./build_cspuz_solver_backend.sh debug
+
+cd ..
+cp -r cspuz_core/build/cspuz_solver_backend/* pzprjs/dist/wasm/
+
+cd pzprjs
+pnpm build
+```
+
+### 推荐的联动开发方式
 
 `pzprjs` 里已经有联动开发命令：
 
@@ -85,35 +109,90 @@ cd pzprjs
 pnpm dev
 ```
 
-它会同时做这些事：
+这个命令通常会：
 
-- 监听 `pzprjs/src` 和 `pzprjs/src-ui`
-- 监听 `cspuz_core/cspuz_solver_backend/src`
-- backend 改动后自动重新构建 WASM
-- 自动把 WASM 拷贝到 `pzprjs/dist/wasm`
+- 监听前端源码
+- 监听 backend solver 源码
+- backend 变化后自动重建 wasm
+- 自动复制 wasm 到 `dist/wasm`
 - 启动本地静态服务
 
-### 手动方式
+前提是当前终端里能正常使用 `emcc`。
 
-如果你只改了前端：
+## 如何确认浏览器在跑最新 wasm
 
-```bash
-cd pzprjs
-pnpm build
-```
-
-如果你改了 `cspuz_core`：
+只改 Rust 代码并不会自动让浏览器用上新 solver。最稳的顺序是：
 
 ```bash
 cd cspuz_core
 bash ./build_cspuz_solver_backend.sh debug
 
-cd ../
+cd ..
 cp -r cspuz_core/build/cspuz_solver_backend/* pzprjs/dist/wasm/
 
 cd pzprjs
 pnpm build
 ```
+
+然后在浏览器里：
+
+1. 强制刷新页面
+2. 打开开发者工具 Network
+3. 确认重新加载了：
+   - `cspuz_solver_backend.js`
+   - `cspuz_solver_backend.wasm`
+
+## 题型与 solver 说明
+
+### 普通题型
+
+大多数已接入 backend 的题型会走 `cspuz_core` 的 `irrefutable_facts` 语义：
+
+- 只返回所有解中都成立的事实
+- 不要求题目必须唯一解
+
+### `travelline`
+
+`travelline` 优先使用 `cspuz_core` 的自定义 backend。  
+如果当前盘面超出 backend 已支持的范围，前端会回退到本地 solver。
+
+当前这条链路的设计目标是：
+
+- 能在页面里直接 `Run solver / Auto solver`
+- 优先输出可确定的公共结论
+- 在求解期间允许继续修改题板
+- 修改题板后取消旧任务并重新开始
+
+## 常见问题
+
+### `emcc: command not found`
+
+说明当前终端没有可用的 Emscripten 环境。  
+如果使用这个仓库自带环境，先执行：
+
+```bash
+nix-shell
+```
+
+然后再确认：
+
+```bash
+which emcc
+```
+
+### 改了 backend，但页面效果没变
+
+通常是漏掉了下面某一步：
+
+1. 重建 `cspuz_solver_backend`
+2. 拷贝到 `pzprjs/dist/wasm`
+3. 重新执行 `pnpm build`
+4. 浏览器强制刷新
+
+### solver 过程中编辑题板会卡顿
+
+当前 `travelline` 的 wasm backend 已经放进 worker 线程。  
+如果仍然感觉卡顿，先确认浏览器加载的是最新的 `dist/js/solver.js`、`dist/js/solver-worker.js` 和最新 wasm。
 
 ## 发布
 
@@ -121,113 +200,33 @@ pnpm build
 
 - `pzprjs/dist/`
 
-它是一个静态站点，可以部署到：
+它是一个静态站点，可以部署到常见静态托管平台，例如：
 
 - GitHub Pages
 - Vercel
 - Netlify
 
-### 最简单的发布流程
+最简单的发布流程：
 
 ```bash
 cd pzprjs
 pnpm build
 ```
 
-然后把 `dist/` 目录发布到你的静态托管平台。
+然后把 `dist/` 发布出去即可。
 
-## Solver 说明
+## 外层仓库与 submodule
 
-### 普通题型
-
-大多数已接入 `cspuz_core` 的题型，网页端会调用 `cspuz_solver_backend.wasm`。  
-这个后端的语义是 `irrefutable_facts`，也就是：
-
-- 只输出所有解中都成立的事实
-- 不要求题目唯一解
-
-### `travelline`
-
-`travelline` 目前走的是前端本地 solver，不是 `cspuz_core` 原生题型。  
-现在它的策略是：
-
-1. 先找一个可行解
-2. 再对边做反证
-3. 如果某条边改成相反状态后无解，则该边是可推断的
-
-这比“先数清所有解再求交集”更适合大空盘。
-
-### 常见提示
-
-`applied N irrefutable solver results`
-
-意思是：
-
-- solver 找到了 `N` 个确定无疑的答案事实
-- 这些结果已经写回到盘面
-
-`solver could not finish exhaustive deduction, so no tentative result was applied`
-
-意思是：
-
-- 当前本地 solver 在限制内没有完成这次严格求证
-- 为了保证“只输出确定事实”，它这次选择不应用任何近似结果
-
-### 调长本地 solver 时间
-
-如果你想减少“不完整”提示，可以改：
-
-- `pzprjs/src-ui/js/solver.js`
-
-在 `solveTravelLinePuzzle()` 里找：
-
-```js
-var maxStates = 2000000;
-var deadline = Date.now() + 20000;
-```
-
-它们分别表示：
-
-- `maxStates`：最多搜索多少个状态
-- `deadline`：最多跑多久，单位毫秒
-
-比如：
-
-```js
-var maxStates = 8000000;
-var deadline = Date.now() + 60000;
-```
-
-然后重新构建：
-
-```bash
-cd pzprjs
-pnpm build
-```
-
-代价是页面可能会慢很多。
-
-## 这个外层仓库应该怎么用
-
-推荐工作流是：
-
-1. 在 `pzprjs/` 里改前端代码
-2. 在 `cspuz_core/` 里改 backend 代码
-3. 各自提交并推送
-4. 回到外层仓库，提交 submodule 指针更新
-
-## Submodule 工作流
+这个 workspace 适合作为外层仓库，`pzprjs/` 和 `cspuz_core/` 作为子仓库管理。
 
 ### 查看状态
-
-在外层仓库：
 
 ```bash
 git status
 git submodule status
 ```
 
-### 更新某个子仓库后，提交外层仓库
+### 子仓库改完后的推荐提交流程
 
 先提交子仓库：
 
@@ -247,7 +246,7 @@ git commit -m "Update cspuz_core"
 git push
 ```
 
-然后回到外层仓库记录新的 submodule commit：
+然后回到外层仓库提交 submodule 指针：
 
 ```bash
 cd ..
@@ -259,7 +258,7 @@ git push
 ### 新机器拉取
 
 ```bash
-git clone <outer-workspace-url>
+git clone <workspace-repo>
 cd puzzle
 git submodule update --init --recursive
 ```
@@ -270,32 +269,7 @@ git submodule update --init --recursive
 git submodule update --remote --recursive
 ```
 
-如果你是日常开发，一般更常用的是直接进入子仓库自己 `git pull`。
-
-## 把当前目录整理成外层仓库
-
-如果你已经在 `puzzle/` 初始化了外层仓库，接下来应确保：
-
-- `pzprjs/` 和 `cspuz_core/` 各自都有自己的 GitHub remote
-- 外层仓库只跟踪它们作为 submodule 的指针
-
-如果你还没把这两个目录登记成 submodule，常用流程是：
-
-```bash
-git submodule add <pzprjs-github-url> pzprjs
-git submodule add <cspuz-core-github-url> cspuz_core
-git commit -m "Add submodules"
-```
-
-如果目录已经存在，可能需要：
-
-```bash
-git submodule add --force <pzprjs-github-url> pzprjs
-git submodule add --force <cspuz-core-github-url> cspuz_core
-git commit -m "Register existing repositories as submodules"
-```
-
-## 现在最值得记住的命令
+## 常用命令速查
 
 构建 backend：
 
@@ -304,7 +278,7 @@ cd cspuz_core
 bash ./build_cspuz_solver_backend.sh debug
 ```
 
-构建 frontend：
+构建前端：
 
 ```bash
 cd pzprjs
