@@ -5,13 +5,12 @@ function wsConnect(port, path) {
 		const key = crypto.randomBytes(16).toString("base64");
 		const req = http.request({ port, path, host: "127.0.0.1", headers: { Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Key": key, "Sec-WebSocket-Version": "13" } });
 		req.on("error", reject);
+		req.end();
 		req.on("upgrade", (res, socket) => {
-			const pending = {};
-			let nextId = 1, buf = Buffer.alloc(0);
+			const pending = {}; let nextId = 1, buf = Buffer.alloc(0);
 			const send = (obj) => {
 				const payload = Buffer.from(JSON.stringify(obj), "utf8");
-				const len = payload.length;
-				let frame;
+				const len = payload.length; let frame;
 				if (len < 126) { frame = Buffer.alloc(2 + len + 4); frame[0] = 0x81; frame[1] = 0x80 | len; payload.copy(frame, 2); }
 				else { frame = Buffer.alloc(4 + len + 4); frame[0] = 0x81; frame[1] = 0x80 | 126; frame.writeUInt16BE(len, 2); payload.copy(frame, 4); }
 				const mask = crypto.randomBytes(4);
@@ -41,44 +40,57 @@ function wsConnect(port, path) {
 			});
 			socket.on("error", reject);
 			resolve({
-				send,
-				eval: (expr, awaitPromise) => new Promise((res) => {
+				raw: (method, params, to) => new Promise((res, rej) => {
 					const id = nextId++;
+					const timer = setTimeout(() => { delete pending[id]; rej(new Error(method + " timeout")); }, to || 15000);
+					pending[id] = (msg) => { clearTimeout(timer); res(msg); };
+					send({ id, method, params });
+				}),
+				eval: (expr, to) => new Promise((res, rej) => {
+					const id = nextId++;
+					const timer = setTimeout(() => { delete pending[id]; rej(new Error("eval timeout")); }, to || 15000);
 					pending[id] = (msg) => {
-						if (msg.result && msg.result.result) res(msg.result.result.value);
-						else if (msg.result && msg.result.exceptionDetails) res("EXC: " + (msg.result.exceptionDetails.exception && msg.result.exceptionDetails.description || ""));
+						clearTimeout(timer);
+						if (msg.result && msg.result.exceptionDetails) res("EXC: " + (msg.result.exceptionDetails.exception && msg.result.exceptionDetails.exception.description || ""));
+						else if (msg.result && msg.result.result) res(msg.result.result.value);
 						else res("RAW: " + JSON.stringify(msg));
 					};
-					send({ id, method: "Runtime.evaluate", params: { expression: expr, returnByValue: true, awaitPromise: !!awaitPromise } });
+					send({ id, method: "Runtime.evaluate", params: { expression: expr, returnByValue: true } });
 				})
 			});
 		});
-		req.end();
 	});
 }
 const pages = await new Promise((resolve, reject) => {
-	http.get("http://127.0.0.1:9225/json", (res) => {
+	http.get("http://127.0.0.1:9346/json", (res) => {
 		let d = "";
 		res.on("data", (c) => (d += c));
 		res.on("end", () => resolve(JSON.parse(d)));
 	}).on("error", reject);
 });
 const page = pages.find((p) => p.type === "page");
-const ws = await wsConnect(9225, page.webSocketDebuggerUrl.replace(/^ws:\/\/[^/]+/, ""));
-await new Promise((r) => setTimeout(r, 3000));
-const pre = await ws.eval('(function(){ var s = document.querySelector("svg"); return s.outerHTML; })()');
-console.log("PRE_START"); console.log(pre); console.log("PRE_END");
-await ws.eval('(function(){ var b = document.getElementById("solver-run"); if (b) b.click(); return "ok"; })()');
-const t0 = Date.now();
-for (let i = 0; i < 60; i++) {
-	await new Promise((r) => setTimeout(r, 500));
-	const st = await ws.eval('(document.getElementById("solver-status")||{textContent:""}).textContent');
-	if (st !== "running solver from a blank answer...") {
-		console.log("SOLVE:", Date.now() - t0, st);
-		const post = await ws.eval('(function(){ var s = document.querySelector("svg"); return s.outerHTML; })()');
-		console.log("POST_START"); console.log(post); console.log("POST_END");
-		process.exit(0);
-	}
+const ws = await wsConnect(9346, page.webSocketDebuggerUrl.replace(/^ws:\/\/[^/]+/, ""));
+
+let ready = false;
+for (let i = 0; i < 60 && !ready; i++) {
+	await new Promise((r) => setTimeout(r, 400));
+	const st = await ws.eval("(typeof ui !== 'undefined' && ui.puzzle && ui.puzzle.pid === 'imbalanceloop' && ui.puzzle.board.hexedges === undefined && ui.puzzle.board.cols === 4) ? 'ok' : 'loading'").catch(() => "loading");
+	ready = st === "ok";
 }
-console.log("still running");
-process.exit(1);
+console.log("ready:", ready);
+
+// 1) clue state after URL load
+console.log("clue:", await ws.eval("JSON.stringify((function(){ var c = ui.puzzle.board.getc(7, 3); return { qnum: c.qnum, qdir: c.qdir, qans: c.qans }; })())"));
+
+// 2) solver
+await ws.eval("document.getElementById('solver-run').click(); void 0");
+await new Promise((r) => setTimeout(r, 8000));
+console.log("solver status:", await ws.eval("document.getElementById('solver-status').textContent"));
+
+// 3) screenshot
+const shot = await ws.raw("Page.captureScreenshot", { format: "png" });
+import("fs").then((fs) => {
+	fs.writeFileSync("/tmp/imbalance_board.png", Buffer.from(shot.result.data, "base64"));
+	console.log("screenshot saved");
+	process.exit(0);
+});
