@@ -76,7 +76,8 @@ async function newPage(url) {
 	return res.id;
 }
 
-const id = await newPage("http://localhost:8080/p.html?uniqnurikabe/4/4/j2g2o");
+// 1) 编辑模式: 5x1 盘面放数字
+const id = await newPage("http://localhost:8080/p.html?anglers/3/1/h14m");
 const pages = await new Promise((resolve, reject) => {
 	http.get("http://127.0.0.1:9222/json", (res) => {
 		let d = "";
@@ -92,51 +93,40 @@ await ws.raw("Page.reload", { ignoreCache: true });
 let ready = false;
 for (let i = 0; i < 60 && !ready; i++) {
 	await new Promise((r) => setTimeout(r, 400));
-	const st = await ws.eval("(typeof ui !== 'undefined' && ui.puzzle && ui.puzzle.pid === 'uniqnurikabe' && ui.puzzle.board.cols === 4) ? 'ok' : 'loading'").catch(() => "loading");
+	const st = await ws.eval("(typeof ui !== 'undefined' && ui.puzzle && ui.puzzle.pid === 'anglers' && ui.puzzle.board.cols === 5) ? 'ok' : 'loading'").catch(() => "loading");
 	ready = st === "ok";
 }
 console.log("ready:", ready, "version:", await ws.eval("pzpr.version"));
 console.log("mode:", await ws.eval("(function(){ return 'edit=' + ui.puzzle.editmode + ' play=' + ui.puzzle.playmode; })()"));
 
-// 涂黑 (eval 设 qans): 两个水平 domino 岛 -> nuShapeDup
-await ws.eval("(function(){ var bd = ui.puzzle.board; var blacks = [[0,0],[0,3],[1,0],[1,1],[1,2],[1,3],[2,0],[2,3],[3,0],[3,1],[3,2],[3,3]]; for (var i = 0; i < blacks.length; i++) { bd.getc(2*blacks[i][0]+1, 2*blacks[i][1]+1).setQans(1); } void 0; })()");
-await new Promise((r) => setTimeout(r, 300));
-console.log("check dup:", await ws.eval("(function(){ var r = ui.puzzle.check(); return 'complete=' + r.complete + ' fail0=' + r[0]; })()"), "(expect nuShapeDup)");
-const shot1 = await ws.raw("Page.captureScreenshot", { format: "png" });
-fs.writeFileSync("/tmp/uniqnu_dup.png", Buffer.from(shot1.result.data, "base64"));
-// solver 按钮测试 (dup 盘面: j2g2o 形状约束下无解 -> no answer)
-await ws.eval("(function(){ var el = document.getElementById(\"solver-run\"); el.dispatchEvent(new MouseEvent(\"click\", {bubbles: true})); return \"dispatched\"; })()");
-await new Promise((r) => setTimeout(r, 8000));
-console.log("solver dup:", await ws.eval("document.getElementById(\"solver-status\").textContent"), "(expect no answer)");
+console.log("clues:", await ws.eval("(function(){ var bd = ui.puzzle.board; return [bd.getc(1,1).qnum, bd.getc(5,1).qnum, bd.getc(9,1).qnum].join(','); })()"), "(expect 1,2,1)");
 
-// 正确解: 3x3 中心 1
-const id2 = await newPage("http://localhost:8080/p.html?uniqnurikabe/3/3/j1j");
-const pages2 = await new Promise((resolve, reject) => {
-	http.get("http://127.0.0.1:9222/json", (res) => {
-		let d = "";
-		res.on("data", (c) => (d += c));
-		res.on("end", () => resolve(JSON.parse(d)));
-	}).on("error", reject);
-});
-const page2 = pages2.find((p) => p.id === id2);
-const ws2 = await wsConnect(9222, page2.webSocketDebuggerUrl.replace(/^ws:\/\/[^/]+/, ""));
-await ws2.raw("Page.reload", { ignoreCache: true });
-let ready2 = false;
-for (let i = 0; i < 60 && !ready2; i++) {
-	await new Promise((r) => setTimeout(r, 400));
-	const st = await ws2.eval("(typeof ui !== 'undefined' && ui.puzzle && ui.puzzle.pid === 'uniqnurikabe' && ui.puzzle.board.cols === 3) ? 'ok' : 'loading'").catch(() => "loading");
-	ready2 = st === "ok";
+// 桥: 用鼠标从岛拖到岛 (hashikake 的 inputLine 方式: 拖 border)
+const cellPos = (bx, by) => ws.eval(`(function(){ var pc = ui.puzzle.painter; var r = ui.puzzle.painter.context.child.getBoundingClientRect(); var c = ui.puzzle.board.getc(${bx}, ${by}); return JSON.stringify({ x: r.left + (c.bx * pc.bw + pc.x0), y: r.top + (c.by * pc.bh + pc.y0) }); })()`);
+async function dragBridge(bx1, by1, bx2, by2) {
+	const P1 = JSON.parse(await cellPos(bx1, by1));
+	const P2 = JSON.parse(await cellPos(bx2, by2));
+	await ws.raw("Input.dispatchMouseEvent", { type: "mousePressed", x: P1.x, y: P1.y, button: "left", buttons: 1, clickCount: 1 });
+	await new Promise((r) => setTimeout(r, 60));
+	await ws.raw("Input.dispatchMouseEvent", { type: "mouseMoved", x: P2.x, y: P2.y, button: "left", buttons: 1 });
+	await new Promise((r) => setTimeout(r, 60));
+	await ws.raw("Input.dispatchMouseEvent", { type: "mouseReleased", x: P2.x, y: P2.y, button: "left", buttons: 0, clickCount: 1 });
+	await new Promise((r) => setTimeout(r, 250));
 }
-// 先 solver 再验证
-await ws2.eval("(function(){ var el = document.getElementById(\"solver-run\"); el.dispatchEvent(new MouseEvent(\"click\", {bubbles: true})); return \"dispatched\"; })()");
-await new Promise((r) => setTimeout(r, 8000));
-console.log("solver valid:", await ws2.eval("document.getElementById(\"solver-status\").textContent"), "(expect displayed 8 solver results)");
-await ws2.eval("ui.puzzle.ansclear(); void 0");
+
+// 岛格 (0,0)->(0,2) 的桥: inputLine 拖的是 border 位置。桥在 (0,0)-(0,1) 之间: 从岛中心拖到空格中心
+// 不画桥, 直接 solver (画桥后 solver 会跳过已有答案)
+await ws.eval("ui.puzzle.ansclear(); void 0");
 await new Promise((r) => setTimeout(r, 200));
-await ws2.eval("(function(){ var bd = ui.puzzle.board; for (var y = 1; y <= 5; y += 2) { for (var x = 1; x <= 5; x += 2) { if (x !== 3 || y !== 3) bd.getc(x, y).setQans(1); } } void 0; })()");
-await new Promise((r) => setTimeout(r, 300));
-console.log("check valid:", await ws2.eval("(function(){ var r = ui.puzzle.check(); return 'complete=' + r.complete + ' fail0=' + r[0]; })()"), "(expect complete)");
-const shot2 = await ws2.raw("Page.captureScreenshot", { format: "png" });
-fs.writeFileSync("/tmp/uniqnu_ok.png", Buffer.from(shot2.result.data, "base64"));
-console.log("screenshots saved");
+console.log("bridge lines cleared:", await ws.eval("(function(){ var bd = ui.puzzle.board; return [2,4,6,8].map(function(bx){ return bd.getb(bx,1).line; }).join(','); })()"), "(expect 0,0,0,0)");
+
+
+// 2) solver 按钮
+console.log("solver:", await ws.eval("(function(){ var el = document.getElementById('solver-run'); el.dispatchEvent(new MouseEvent('click', {bubbles: true})); return 'dispatched'; })()"));
+await new Promise((r) => setTimeout(r, 6000));
+console.log("solver status:", await ws.eval("document.getElementById('solver-status').textContent"));
+const shot = await ws.raw("Page.captureScreenshot", { format: "png" });
+fs.writeFileSync("/tmp/anglers.png", Buffer.from(shot.result.data, "base64"));
+console.log("bridge lines after solver:", await ws.eval("(function(){ var bd = ui.puzzle.board; return [2,4,6,8].map(function(bx){ return bd.getb(bx,1).line; }).join(','); })()"), "(expect overlay 1,1,1,1)");
+console.log("screenshot saved /tmp/anglers.png");
 process.exit(0);
