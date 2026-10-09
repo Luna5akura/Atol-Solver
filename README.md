@@ -67,16 +67,17 @@ pnpm build
 
 ```bash
 cd pzprjs
-./node_modules/.bin/live-server dist
+pnpm serve
 ```
 
 然后打开浏览器访问：
 
 ```text
-http://127.0.0.1:8080/p.html?travelline
+http://127.0.0.1:8642/p.html?travelline
 ```
 
-实际端口以终端输出为准。
+本地预览端口固定为 **8642**（特意避开 3000/5000/8000/8080/8888 等常见端口）。
+如果该端口恰好被其他程序占用，live-server 会提示并自动改用另一个空闲端口（仍不会是常见端口）。
 
 ## 日常开发
 
@@ -115,7 +116,7 @@ pnpm dev
 - 监听 backend solver 源码
 - backend 变化后自动重建 wasm
 - 自动复制 wasm 到 `dist/wasm`
-- 启动本地静态服务
+- 启动本地静态服务（端口 8642）
 
 前提是当前终端里能正常使用 `emcc`。
 
@@ -362,5 +363,5 @@ pnpm dev
 
 ```bash
 cd pzprjs
-./node_modules/.bin/live-server dist
+pnpm serve
 ```
